@@ -75,6 +75,7 @@ func NewRootCmd() *cobra.Command {
 
 			transport := &http.Transport{
 				TLSClientConfig: tlsConfig,
+				Proxy:           http.ProxyFromEnvironment,
 			}
 			client := &http.Client{Transport: transport}
 
