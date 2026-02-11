@@ -79,4 +79,15 @@ curl "http://localhost:5000/api.internal.net/search?q=dumbo"
 | `--port` | Port to listen on (default: 5000) |
 | `--insecure` | Skip verification of the target server's certificate |
 | `--no-mtls` | Run without mutual TLS (no .p12 required) |
+| `--log-level` | Log level (debug, info, warn, error) (default: info) |
+| `--plain` | Disable pretty printing (colors, etc.) |
 | `--help` | Show usage information |
+
+## Testing
+
+To run all tests in the project, use:
+
+```bash
+go test ./...
+```
+
