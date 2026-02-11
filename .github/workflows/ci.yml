@@ -17,7 +17,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.23' # Matches current standard or your preference
+          go-version: '1.24.2'
 
       - name: Install dependencies
         run: go mod download
@@ -26,7 +26,7 @@ jobs:
         run: go test -v ./...
 
       - name: Build Binary
-        run: go build -v -o build/dumbo main.go
+        run: make build
 
       - name: Upload artifact
         if: startsWith(github.ref, 'refs/tags/')
@@ -49,10 +49,11 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: dumbo-binary
+          path: build
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
-          files: dumbo
+          files: build/dumbo
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
