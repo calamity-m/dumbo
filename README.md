@@ -2,6 +2,9 @@
 
 Dumbo is a Go-based forward proxy designed to facilitate mutual TLS (mTLS) connections using password-encrypted `.p12` (PKCS#12) certificates. It acts as a bridge, allowing you to make simple HTTP calls locally that Dumbo then upgrades to mTLS-secured HTTPS calls to your target servers.
 
+It is dumb, it is simple, I don't know why nginx and other things just don't take in
+.p12(s) by default, seriously.
+
 ## Features
 
 - **mTLS Support**: Easily use `.p12` certificates for client authentication.
