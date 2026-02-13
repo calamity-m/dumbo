@@ -1,4 +1,4 @@
-.PHONY: build clean
+.PHONY: build clean test
 
 build: clean
 	mkdir -p build
@@ -6,3 +6,6 @@ build: clean
 
 clean:
 	rm -rf build
+
+test: 
+	go test ./...

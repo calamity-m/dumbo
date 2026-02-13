@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"syscall"
 
@@ -22,6 +23,33 @@ var (
 	logLevelStr string
 	plain       bool
 )
+
+// NewAnonymousClient creates a client optimized for corporate proxies.
+// It forces HTTP/1.1, mimics curl, and strictly ignores proxy auth.
+func NewAnonymousClient(tlsConfig *tls.Config) *http.Client {
+	return &http.Client{
+		Transport: &http.Transport{
+			TLSClientConfig: tlsConfig,
+			// 1. Force HTTP/1.1
+			// Setting TLSNextProto to a non-nil empty map disables HTTP/2.
+			TLSNextProto: make(map[string]func(authority string, c *tls.Conn) http.RoundTripper),
+
+			// 2. Custom Proxy Logic
+			Proxy: func(req *http.Request) (*url.URL, error) {
+				// Get the proxy from the environment (HTTPS_PROXY, etc.)
+				proxyURL, err := http.ProxyFromEnvironment(req)
+				if proxyURL == nil || err != nil {
+					return proxyURL, err
+				}
+
+				// 3. Strip Credentials intentionally
+				// This ensures we never send a Proxy-Authorization header
+				proxyURL.User = nil
+				return proxyURL, nil
+			},
+		},
+	}
+}
 
 func NewRootCmd() *cobra.Command {
 	cmd := &cobra.Command{
@@ -73,11 +101,7 @@ func NewRootCmd() *cobra.Command {
 				tlsConfig.InsecureSkipVerify = true
 			}
 
-			transport := &http.Transport{
-				TLSClientConfig: tlsConfig,
-				Proxy:           http.ProxyFromEnvironment,
-			}
-			client := &http.Client{Transport: transport}
+			client := NewAnonymousClient(tlsConfig)
 
 			addr := fmt.Sprintf(":%d", port)
 			slog.Info(fmt.Sprintf("Dumbo proxy listening on http://localhost%s", addr))
