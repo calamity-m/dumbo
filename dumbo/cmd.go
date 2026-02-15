@@ -22,6 +22,7 @@ var (
 	noMTLS      bool
 	logLevelStr string
 	plain       bool
+	standard    bool
 )
 
 // NewAnonymousClient creates a client optimized for corporate proxies.
@@ -101,7 +102,16 @@ func NewRootCmd() *cobra.Command {
 				tlsConfig.InsecureSkipVerify = true
 			}
 
-			client := NewAnonymousClient(tlsConfig)
+			var client *http.Client
+			if standard {
+				client = &http.Client{
+					Transport: &http.Transport{
+						TLSClientConfig: tlsConfig,
+					},
+				}
+			} else {
+				client = NewAnonymousClient(tlsConfig)
+			}
 
 			addr := fmt.Sprintf(":%d", port)
 			slog.Info(fmt.Sprintf("Dumbo proxy listening on http://localhost%s", addr))
@@ -126,6 +136,7 @@ func NewRootCmd() *cobra.Command {
 	flags.BoolVar(&noMTLS, "no-mtls", false, "Run without mutual TLS (no .p12 required)")
 	flags.StringVar(&logLevelStr, "log-level", "info", "Log level (debug, info, warn, error)")
 	flags.BoolVar(&plain, "plain", false, "Disable pretty printing (colors, etc.)")
+	flags.BoolVar(&standard, "standard", false, "Use a standard HTTP client instead of the anonymous client")
 
 	return cmd
 }
