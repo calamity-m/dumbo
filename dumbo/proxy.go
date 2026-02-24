@@ -3,84 +3,66 @@ package dumbo
 import (
 	"crypto/tls"
 	"encoding/pem"
-	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httputil"
-	"net/url"
 	"os"
 	"strings"
 
 	"golang.org/x/crypto/pkcs12"
 )
 
-type Proxy struct {
-	Client *http.Client
-	Scheme string
-	Debug  bool
+// ReverseProxy handles the proxying logic.
+type ReverseProxy struct {
+	proxy *httputil.ReverseProxy
 }
 
-func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	// Parse target host and path
-	path := strings.TrimPrefix(r.URL.Path, "/")
+// NewReverseProxy creates a new reverse proxy with the given TLS configuration.
+func NewReverseProxy(tlsConfig *tls.Config) *ReverseProxy {
+	director := func(req *http.Request) {
+		path := strings.TrimPrefix(req.URL.Path, "/")
+		parts := strings.SplitN(path, "/", 2)
+		
+		targetHost := parts[0]
+		remainingPath := ""
+		if len(parts) > 1 {
+			remainingPath = "/" + parts[1]
+		}
 
-	// Handle cases where the path might contain the scheme but only with one slash due to normalization
-	if strings.HasPrefix(path, "http:/") && !strings.HasPrefix(path, "http://") {
-		path = "http://" + path[6:]
-	} else if strings.HasPrefix(path, "https:/") && !strings.HasPrefix(path, "https://") {
-		path = "https://" + path[7:]
+		req.URL.Scheme = "https"
+		req.URL.Host = targetHost
+		req.URL.Path = remainingPath
+		req.Host = targetHost
+		
+		slog.Debug("Director", "scheme", req.URL.Scheme, "host", req.URL.Host, "path", req.URL.Path)
 	}
 
-	var targetURL *url.URL
-	var err error
-
-	if strings.Contains(path, "://") {
-		targetURL, err = url.Parse(path)
-	} else {
-		targetURL, err = url.Parse(p.Scheme + "://" + path)
+	transport := &http.Transport{
+		TLSClientConfig: tlsConfig,
+		Proxy:           http.ProxyFromEnvironment,
+		// Disable HTTP/2 by setting TLSNextProto to a non-nil empty map.
+		TLSNextProto: make(map[string]func(authority string, c *tls.Conn) http.RoundTripper),
 	}
 
-	if err != nil || targetURL.Host == "" {
-		slog.Error(fmt.Sprintf("Invalid target URL from path %q: %v", path, err))
-		http.Error(w, "Invalid request format. Expected /{host}/{path}", http.StatusBadRequest)
+	return &ReverseProxy{
+		proxy: &httputil.ReverseProxy{
+			Director:      director,
+			Transport:     transport,
+			FlushInterval: -1, // Disable buffering for streaming
+			ErrorLog:      slog.NewLogLogger(slog.Default().Handler(), slog.LevelError),
+		},
+	}
+}
+
+func (p *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path == "/" || r.URL.Path == "" {
+		http.Error(w, "Target host is required in the path (e.g., /google.com)", http.StatusBadRequest)
 		return
 	}
-
-	// Preserve query parameters
-	targetURL.RawQuery = r.URL.RawQuery
-
-	slog.Info(fmt.Sprintf("%s %s -> %s", r.Method, r.URL.String(), targetURL.String()))
-
-	director := func(req *http.Request) {
-		req.URL.Scheme = targetURL.Scheme
-		req.URL.Host = targetURL.Host
-		req.URL.Path = targetURL.Path
-		if req.URL.Path == "" {
-			req.URL.Path = "/"
-		}
-		req.Host = targetURL.Host
-		req.URL.RawQuery = targetURL.RawQuery
-
-		if p.Debug {
-			slog.Debug("Request Headers:")
-			for name, values := range req.Header {
-				for _, value := range values {
-					slog.Debug(fmt.Sprintf("  %s: %s", name, value))
-				}
-			}
-		}
-	}
-
-	proxy := &httputil.ReverseProxy{
-		Director:      director,
-		Transport:     p.Client.Transport,
-		FlushInterval: -1, // Flush immediately for streaming/SSE
-		ErrorLog:      slog.NewLogLogger(slog.Default().Handler(), slog.LevelError),
-	}
-
-	proxy.ServeHTTP(w, r)
+	p.proxy.ServeHTTP(w, r)
 }
 
+// LoadPKCS12 loads a PKCS12 (.p12) certificate file.
 func LoadPKCS12(path, password string) (*tls.Config, error) {
 	p12Data, err := os.ReadFile(path)
 	if err != nil {
