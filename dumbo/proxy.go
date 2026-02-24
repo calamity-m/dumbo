@@ -78,8 +78,9 @@ func NewReverseProxy(tlsConfig *tls.Config, debug bool) *ReverseProxy {
 	}
 
 	transport := &http.Transport{
-		TLSClientConfig: tlsConfig,
-		Proxy:           http.ProxyFromEnvironment,
+		TLSClientConfig:    tlsConfig,
+		Proxy:              http.ProxyFromEnvironment,
+		DisableCompression: true,
 		// Explicitly disable HTTP/2. This forces HTTP/1.1 which is often more reliable
 		// for SSE/streaming through multiple layers of proxies (like LiteLLM).
 		TLSNextProto: make(map[string]func(authority string, c *tls.Conn) http.RoundTripper),

@@ -80,9 +80,15 @@ func NewRootCmd() *cobra.Command {
 			slog.Info(fmt.Sprintf("Dumbo proxy listening on http://localhost%s", addr))
 
 			proxy := NewReverseProxy(tlsConfig, debug)
-			http.Handle("/", proxy)
+			server := &http.Server{
+				Addr:         addr,
+				Handler:      proxy,
+				ReadTimeout:  0, // No timeout for reading the request
+				WriteTimeout: 0, // No timeout for writing the response
+				IdleTimeout:  0, // No timeout for idle connections
+			}
 
-			return http.ListenAndServe(addr, nil)
+			return server.ListenAndServe()
 		},
 	}
 
