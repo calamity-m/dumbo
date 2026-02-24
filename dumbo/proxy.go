@@ -12,14 +12,32 @@ import (
 	"golang.org/x/crypto/pkcs12"
 )
 
-// ReverseProxy handles the proxying logic.
+// ReverseProxy is a wrapper around httputil.ReverseProxy that implements the http.Handler interface.
+// It is designed to intercept local HTTP requests and forward them to a target HTTPS host
+// using mutual TLS (mTLS) if configured.
+//
+// Usage:
+//
+//	proxy := NewReverseProxy(tlsConfig)
+//	http.Handle("/", proxy)
+//	http.ListenAndServe(":5000", nil)
 type ReverseProxy struct {
 	proxy *httputil.ReverseProxy
 }
 
-// NewReverseProxy creates a new reverse proxy with the given TLS configuration.
+// NewReverseProxy initializes a ReverseProxy with a custom TLS configuration and optimized settings
+// for streaming and SSE (Server-Sent Events).
+//
+// It configures the underlying transport to:
+// - Use the provided tlsConfig (for mTLS).
+// - Respect system proxy settings (HTTP_PROXY, HTTPS_PROXY).
+// - Disable HTTP/2 to ensure stable streaming behavior in nested proxy environments.
+// - Flush data immediately (FlushInterval: -1) to support real-time responses.
 func NewReverseProxy(tlsConfig *tls.Config) *ReverseProxy {
+	// The Director function modifies the incoming request to point to the target.
 	director := func(req *http.Request) {
+		// Dumbo uses the first segment of the path as the target host.
+		// Path format: /{target_host}/{remote_path}
 		path := strings.TrimPrefix(req.URL.Path, "/")
 		parts := strings.SplitN(path, "/", 2)
 		
@@ -29,18 +47,20 @@ func NewReverseProxy(tlsConfig *tls.Config) *ReverseProxy {
 			remainingPath = "/" + parts[1]
 		}
 
+		// Re-write the request to use HTTPS and the target host/path.
 		req.URL.Scheme = "https"
 		req.URL.Host = targetHost
 		req.URL.Path = remainingPath
-		req.Host = targetHost
+		req.Host = targetHost // Crucial for SNI and Host header matching.
 		
-		slog.Debug("Director", "scheme", req.URL.Scheme, "host", req.URL.Host, "path", req.URL.Path)
+		slog.Debug("Director: forwarding request", "scheme", req.URL.Scheme, "host", req.URL.Host, "path", req.URL.Path)
 	}
 
 	transport := &http.Transport{
 		TLSClientConfig: tlsConfig,
 		Proxy:           http.ProxyFromEnvironment,
-		// Disable HTTP/2 by setting TLSNextProto to a non-nil empty map.
+		// Explicitly disable HTTP/2. This forces HTTP/1.1 which is often more reliable 
+		// for SSE/streaming through multiple layers of proxies (like LiteLLM).
 		TLSNextProto: make(map[string]func(authority string, c *tls.Conn) http.RoundTripper),
 	}
 
@@ -48,27 +68,38 @@ func NewReverseProxy(tlsConfig *tls.Config) *ReverseProxy {
 		proxy: &httputil.ReverseProxy{
 			Director:      director,
 			Transport:     transport,
-			FlushInterval: -1, // Disable buffering for streaming
+			FlushInterval: -1, // Disables buffering. Each chunk from the server is sent to the client immediately.
 			ErrorLog:      slog.NewLogLogger(slog.Default().Handler(), slog.LevelError),
 		},
 	}
 }
 
+// ServeHTTP satisfies the http.Handler interface, allowing ReverseProxy to be used by the standard library's HTTP server.
+//
+// Logic flow:
+// 1. It checks if a target host is provided in the path.
+// 2. If valid, it delegates the request handling to the internal httputil.ReverseProxy.
+// 3. The internal proxy calls the Director (defined in NewReverseProxy) to transform the request.
+// 4. The internal proxy then executes the request using the custom mTLS transport.
+//
+// This is typically called by net/http's server loop for every incoming request.
 func (p *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path == "/" || r.URL.Path == "" {
-		http.Error(w, "Target host is required in the path (e.g., /google.com)", http.StatusBadRequest)
+		http.Error(w, "Target host is required in the path (e.g., http://localhost:5000/google.com)", http.StatusBadRequest)
 		return
 	}
 	p.proxy.ServeHTTP(w, r)
 }
 
-// LoadPKCS12 loads a PKCS12 (.p12) certificate file.
+// LoadPKCS12 loads and decodes a .p12 (PKCS#12) file into a tls.Config suitable for client authentication.
+// It converts the P12 blocks into PEM format to create an X509 key pair.
 func LoadPKCS12(path, password string) (*tls.Config, error) {
 	p12Data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
 
+	// Extract PEM blocks from P12.
 	blocks, err := pkcs12.ToPEM(p12Data, password)
 	if err != nil {
 		return nil, err
@@ -79,6 +110,7 @@ func LoadPKCS12(path, password string) (*tls.Config, error) {
 		pemData = append(pemData, pem.EncodeToMemory(b)...)
 	}
 
+	// Create the certificate pair.
 	cert, err := tls.X509KeyPair(pemData, pemData)
 	if err != nil {
 		return nil, err
