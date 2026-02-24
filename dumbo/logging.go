@@ -55,18 +55,28 @@ type InterceptHandler struct {
 	log    *log.Logger
 	pretty bool
 	level  slog.Level
+	attrs  []slog.Attr
 }
 
 func (c *InterceptHandler) Handle(ctx context.Context, r slog.Record) error {
-
 	format := ""
 	if c.level <= slog.LevelDebug {
 		format = fmt.Sprintf("%s | %s | ", r.Time.String(), r.Level)
 	}
 	format = fmt.Sprintf("%s%s", format, r.Message)
 
-	if c.pretty {
-		switch r.Level {
+	// Add stored attributes
+	for _, attr := range c.attrs {
+		format = fmt.Sprintf("%s [%s=%v]", format, attr.Key, attr.Value)
+	}
+
+	// Add record attributes
+	r.Attrs(func(attr slog.Attr) bool {
+		format = fmt.Sprintf("%s [%s=%v]", format, attr.Key, attr.Value)
+		return true
+	})
+
+	if c.pretty {		switch r.Level {
 		case slog.LevelDebug:
 			format = colorize(darkGray, format)
 		case slog.LevelInfo:
@@ -80,6 +90,16 @@ func (c *InterceptHandler) Handle(ctx context.Context, r slog.Record) error {
 
 	c.log.Println(format)
 	return nil
+}
+
+func (c *InterceptHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
+	return &InterceptHandler{
+		Handler: c.Handler,
+		log:     c.log,
+		pretty:  c.pretty,
+		level:   c.level,
+		attrs:   append(c.attrs, attrs...),
+	}
 }
 
 func NewInterceptHandler(w io.Writer, opts *slog.HandlerOptions, pretty bool, level slog.Level) *InterceptHandler {
