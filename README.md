@@ -8,9 +8,22 @@ It is dumb, it is simple, I don't know why nginx and other things just don't tak
 ## Features
 
 - **mTLS Support**: Easily use `.p12` certificates for client authentication.
-- **Secure Passphrase Entry**: Prompts for the `.p12` passphrase securely at startup.
+- **SSE & Streaming**: Optimized for real-time data with immediate flushing and no buffering.
+- **Environment Proxy Aware**: Automatically respects `HTTP_PROXY` and `HTTPS_PROXY` environment variables.
+- **HTTP/1.1 Focused**: Forces HTTP/1.1 for maximum compatibility with corporate proxies and streaming endpoints.
 - **Flexible CLI**: Options for custom CA certs, insecure modes, and running without mTLS.
 - **Simple URL Mapping**: Map local paths directly to target hosts.
+
+## How it Works
+
+Dumbo operates as a transparent reverse proxy that translates local HTTP requests into authenticated mTLS HTTPS requests.
+
+1. **URL Translation**: It takes the first segment of the incoming request path as the target host and the remainder as the remote path.
+   - `http://localhost:5000/api.openai.com/v1/chat/completions` → `https://api.openai.com/v1/chat/completions`
+2. **Mutual TLS**: If a `.p12` certificate is provided, Dumbo uses it to perform client authentication with the target server.
+3. **Streaming/SSE**: Dumbo is configured with `FlushInterval: -1`, meaning it flushes data to the client as soon as it receives it from the server. This is critical for Server-Sent Events (SSE) used by LLM providers.
+4. **Proxy Chaining**: It uses `http.ProxyFromEnvironment`, allowing Dumbo itself to run behind another corporate proxy if needed.
+5. **Connection Handling**: It explicitly disables HTTP/2 for the upstream connection to ensure stable streaming behavior and avoid common protocol-level mismatches in nested proxy environments.
 
 ## Installation
 
@@ -82,15 +95,11 @@ curl "http://localhost:5000/api.internal.net/search?q=dumbo"
 | `--port` | Port to listen on (default: 5000) |
 | `--insecure` | Skip verification of the target server's certificate |
 | `--no-mtls` | Run without mutual TLS (no .p12 required) |
-| `--log-level` | Log level (debug, info, warn, error) (default: info) |
+| `--debug` | Enable debug logging (verbose output) |
 | `--plain` | Disable pretty printing (colors, etc.) |
 | `--help` | Show usage information |
 
-## Testing
+## Contributing
 
-To run all tests in the project, use:
-
-```bash
-go test ./...
-```
+Pull requests are welcome. For major changes, please open an issue first to discuss what you would like to change.
 

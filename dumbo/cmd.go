@@ -14,13 +14,13 @@ import (
 )
 
 var (
-	certPath    string
-	caCertPath  string
-	port        int
-	insecure    bool
-	noMTLS      bool
-	logLevelStr string
-	plain       bool
+	certPath   string
+	caCertPath string
+	port       int
+	insecure   bool
+	noMTLS     bool
+	debug      bool
+	plain      bool
 )
 
 func NewRootCmd() *cobra.Command {
@@ -29,7 +29,10 @@ func NewRootCmd() *cobra.Command {
 		Short: "Dumbo is a Go-based forward proxy for mTLS connections",
 		Long:  `Dumbo is a Go-based forward proxy designed to facilitate mutual TLS (mTLS) connections using password-encrypted .p12 certificates.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			level := ParseLevel(logLevelStr)
+			level := slog.LevelInfo
+			if debug {
+				level = slog.LevelDebug
+			}
 			logger := slog.New(NewInterceptHandler(os.Stdout, nil, !plain, level))
 			slog.SetDefault(logger)
 
@@ -76,7 +79,7 @@ func NewRootCmd() *cobra.Command {
 			addr := fmt.Sprintf(":%d", port)
 			slog.Info(fmt.Sprintf("Dumbo proxy listening on http://localhost%s", addr))
 
-			proxy := NewReverseProxy(tlsConfig, level <= slog.LevelDebug)
+			proxy := NewReverseProxy(tlsConfig, debug)
 			http.Handle("/", proxy)
 
 			return http.ListenAndServe(addr, nil)
@@ -89,7 +92,7 @@ func NewRootCmd() *cobra.Command {
 	flags.IntVar(&port, "port", 5000, "Port to listen on")
 	flags.BoolVar(&insecure, "insecure", false, "Skip verification of the target server's certificate")
 	flags.BoolVar(&noMTLS, "no-mtls", false, "Run without mutual TLS (no .p12 required)")
-	flags.StringVar(&logLevelStr, "log-level", "info", "Log level (debug, info, warn, error)")
+	flags.BoolVar(&debug, "debug", false, "Enable debug logging (verbose output)")
 	flags.BoolVar(&plain, "plain", false, "Disable pretty printing (colors, etc.)")
 
 	return cmd
