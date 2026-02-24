@@ -21,7 +21,6 @@ var (
 	noMTLS      bool
 	logLevelStr string
 	plain       bool
-	standard    bool
 )
 
 func NewRootCmd() *cobra.Command {
@@ -77,7 +76,7 @@ func NewRootCmd() *cobra.Command {
 			addr := fmt.Sprintf(":%d", port)
 			slog.Info(fmt.Sprintf("Dumbo proxy listening on http://localhost%s", addr))
 
-			proxy := NewReverseProxy(tlsConfig)
+			proxy := NewReverseProxy(tlsConfig, level <= slog.LevelDebug)
 			http.Handle("/", proxy)
 
 			return http.ListenAndServe(addr, nil)
@@ -92,7 +91,6 @@ func NewRootCmd() *cobra.Command {
 	flags.BoolVar(&noMTLS, "no-mtls", false, "Run without mutual TLS (no .p12 required)")
 	flags.StringVar(&logLevelStr, "log-level", "info", "Log level (debug, info, warn, error)")
 	flags.BoolVar(&plain, "plain", false, "Disable pretty printing (colors, etc.)")
-	flags.BoolVar(&standard, "standard", false, "Use a standard HTTP client instead of the anonymous client")
 
 	return cmd
 }
