@@ -1,6 +1,7 @@
 package dumbo
 
 import (
+	"bytes"
 	"crypto/tls"
 	"encoding/pem"
 	"io"
@@ -60,7 +61,7 @@ func NewReverseProxy(tlsConfig *tls.Config, debug bool) *ReverseProxy {
 		// Path format: /{target_host}/{remote_path}
 		path := strings.TrimPrefix(req.URL.Path, "/")
 		parts := strings.SplitN(path, "/", 2)
-		
+
 		targetHost := parts[0]
 		remainingPath := ""
 		if len(parts) > 1 {
@@ -72,14 +73,14 @@ func NewReverseProxy(tlsConfig *tls.Config, debug bool) *ReverseProxy {
 		req.URL.Host = targetHost
 		req.URL.Path = remainingPath
 		req.Host = targetHost // Crucial for SNI and Host header matching.
-		
+
 		slog.Debug("Director: forwarding request", "scheme", req.URL.Scheme, "host", req.URL.Host, "path", req.URL.Path)
 	}
 
 	transport := &http.Transport{
 		TLSClientConfig: tlsConfig,
 		Proxy:           http.ProxyFromEnvironment,
-		// Explicitly disable HTTP/2. This forces HTTP/1.1 which is often more reliable 
+		// Explicitly disable HTTP/2. This forces HTTP/1.1 which is often more reliable
 		// for SSE/streaming through multiple layers of proxies (like LiteLLM).
 		TLSNextProto: make(map[string]func(authority string, c *tls.Conn) http.RoundTripper),
 	}
@@ -117,6 +118,20 @@ func (p *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Target host is required in the path (e.g., http://localhost:5000/google.com)", http.StatusBadRequest)
 		return
 	}
+
+	// Log request headers and body
+	var bodyBytes []byte
+	if r.Body != nil {
+		bodyBytes, _ = io.ReadAll(r.Body)
+		r.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
+	}
+	slog.Debug("Incoming Request",
+		"method", r.Method,
+		"url", r.URL.String(),
+		"headers", r.Header,
+		"body", string(bodyBytes),
+	)
+
 	p.proxy.ServeHTTP(w, r)
 }
 
